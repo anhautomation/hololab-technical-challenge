@@ -1,59 +1,84 @@
-# Persona Chatbot LLM
+# Persona-based LLM Chatbot System
 
-This project is a working demo for **Task 2 – Programming Skills** of the Hololab technical challenge.
+This project presents a **persona-based LLM chatbot system** designed with clear responsibility boundaries, extensibility, and safe interaction patterns.
 
-The purpose of this demo is to show the ability to:
-- Build a configurable chatbot
-- Enforce persona, tone, and knowledge boundaries
-- Deliver a clean and testable frontend–backend flow
+## Problem Scope
 
-This is a demo project for evaluation only.
+The system allows users to define a chatbot persona and ensures that:
 
----
+- The chatbot consistently stays in character
+- Responses follow the configured tone and personality
+- Answers are restricted to explicitly defined knowledge
+- Missing or out-of-scope information is handled safely
+- Core application logic remains independent from any specific LLM provider
 
-## What the Demo Does
+## System Capabilities
 
-The application allows users to:
+The application enables users to:
 
 1. Create a chatbot persona with:
    - Name
    - Occupation
-   - Bio
-   - Style / tone
-   - Allowed knowledge
+   - Background / bio
+   - Communication style / tone
+   - Allowed knowledge scope
 
-2. Chat with the created persona.
+2. Interact with the chatbot through a web interface
 
-3. Verify that the chatbot:
-   - Stays in character
-   - Uses only allowed knowledge
-   - Clearly refuses or defers when information is missing
+3. Verify persona consistency and knowledge boundary enforcement
 
----
+## Architectural Intent
+
+This system is structured with production-oriented thinking:
+
+- Persona configuration is treated as structured input, not hardcoded prompts
+- Prompt construction and LLM interaction are encapsulated behind a provider interface
+- The backend enforces persona and knowledge constraints
+- The frontend remains a thin interaction layer
+
+These boundaries allow future scaling and provider substitution.
+
+## High-level Architecture
+
+The system is organized around clear responsibility and trust boundaries:
+
+- The frontend is responsible only for persona configuration and user interaction
+- The backend owns persona validation, prompt construction, and response enforcement
+- LLM providers are accessed through a pluggable interface and are treated as untrusted execution components
+
+All behavioral guarantees — persona consistency, tone adherence, and knowledge boundaries —
+are enforced by the backend before and after LLM execution.
 
 ## Project Structure
 
 hololab-core-system  
-Go backend (REST API, persona logic, LLM adapter)
+Go backend (persona logic, LLM orchestration, REST API)
 
 hololab-persona-chatbot  
-Vue 3 frontend (UI for creating bots and chatting)
+Vue 3 frontend (persona management and chat interface)
 
----
+The backend is responsible for behavior enforcement, while the frontend focuses on usability and clarity.
 
-## LLM Behavior
+## LLM Integration Strategy
 
-The demo supports two modes:
+The system supports two interchangeable execution modes.
 
-LLM_MODE = mock  
-Uses an internal mock LLM to validate persona logic and scope enforcement.
+### Internal Mock Mode
 
-LLM_MODE = openai_compat  
-Uses a real OpenAI-compatible API when configured.
+LLM_MODE = mock
 
-No application logic changes are required to switch modes.
+- Uses an internal mock LLM implementation
+- Provides deterministic and auditable behavior
+- Validates persona logic and prompt boundaries
+- Suitable for evaluation without external dependencies
 
----
+### External LLM Mode
+
+LLM_MODE = openai_compat
+
+- Uses an OpenAI-compatible API
+- Requires no changes in application logic
+- Demonstrates clean separation between system behavior and AI providers
 
 ## Running Locally
 
@@ -66,14 +91,16 @@ Frontend:
 npm install  
 npm run dev
 
----
+## Live Evaluation
 
-## Notes
+A running instance of the system is available for interactive evaluation.
 
-- SQLite is used only for demo simplicity.
-- Long-term persistence is not required for this challenge.
-- The demo is designed to be run and evaluated live.
+🔗 [Open live system](https://hololab-technical-challenge.vercel.app/)
 
----
+## Implementation Notes
 
-Demo submission for technical evaluation.
+- SQLite is used for simplicity and fast iteration
+- Long-term persistence is intentionally out of scope
+- The system is designed for live evaluation and walkthrough
+- The architecture supports future extension such as caching layers,
+  multi-provider routing, and cost-aware LLM fallback strategies

@@ -1,7 +1,7 @@
 <template>
   <div class="wrap">
     <header class="top">
-      <div class="brand">Hololab Persona Bot Demo</div>
+      <div class="brand">Hololab Persona Bot</div>
       <nav class="nav">
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/create">Create</RouterLink>
@@ -13,7 +13,7 @@
     </main>
 
     <footer class="foot">
-      <div>Chatbot LLM Demo • Vue 3 + Go + SQLite</div>
+      <div>Chatbot LLM • Vue 3 + Go + SQLite</div>
 
       <div class="powered">
         <span>Powered by</span>
@@ -32,7 +32,7 @@
             />
           </svg>
         </a>
-
+        Anh
         <span class="dot">·</span>
 
         <a

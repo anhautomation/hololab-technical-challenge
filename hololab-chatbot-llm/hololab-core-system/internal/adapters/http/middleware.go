@@ -1,16 +1,54 @@
 package httpadapter
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		origin := c.GetHeader("Origin")
+
+		if origin != "" && !isAllowedOrigin(origin) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Not Allowed"})
 			return
 		}
+
+		if origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Max-Age", "86400")
+		}
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
 		c.Next()
 	}
+}
+
+func isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+
+	allowedExact := []string{
+		"https://hololab-technical-challenge.vercel.app",
+		"http://localhost:5173",
+		"http://localhost:3000",
+	}
+
+	for _, o := range allowedExact {
+		if origin == o {
+			return true
+		}
+	}
+
+	return false
 }

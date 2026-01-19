@@ -24,32 +24,28 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 
 	if isInjectionAttempt(lu) {
 		return bulletsVN(
-			"Tôi không thể bỏ qua persona và rules đã cấu hình.",
-			"Hãy hỏi trong phạm vi hồ sơ và *Allowed Knowledge* của bot.",
+			"Mình không thể đáp ứng yêu cầu đó.",
+			"Bạn hãy hỏi theo đúng vai trò và mục tiêu của nhân vật nhé.",
 		), nil
 	}
 
 	name, job, bio := parseIdentity(systemPrompt)
-	style := parseStyle(systemPrompt)
+	_ = parseStyle(systemPrompt)
 	ak, akSpecified := parseAllowedKnowledge(systemPrompt)
 
-	_ = style
-
 	if containsAny(lu, "bạn là ai", "ban la ai", "bạn giúp được gì", "ban giup duoc gi", "who are you", "what can you do") {
-		head := "Mình là chatbot theo persona đã cấu hình."
+		head := "Mình là chatbot theo persona."
 		if name != "" {
-			head = "Mình là **" + name + "** theo persona đã cấu hình."
+			head = "Mình là **" + name + "**."
 		}
 		out := []string{head}
 		if job != "" {
 			out = append(out, "Nghề nghiệp/Vai trò: **"+job+"**.")
 		}
-		if bio != "" {
+		if strings.TrimSpace(bio) != "" {
 			out = append(out, "Tiểu sử: "+shorten(bio, 180))
 		}
-		out = append(out,
-			"Mình sẽ trả lời theo đúng phong cách và **không vượt quá Allowed Knowledge**.",
-		)
+		out = append(out, "Mình sẽ trả lời đúng theo vai trò và phong cách đã mô tả.")
 		return bulletsVN(out...), nil
 	}
 
@@ -59,7 +55,7 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 			title = "Kế hoạch ngắn (" + job + ")"
 		}
 
-		context := "(chưa cấu hình tiểu sử)"
+		context := "(chưa có thêm bối cảnh)"
 		if strings.TrimSpace(bio) != "" {
 			context = shorten(bio, 140)
 		}
@@ -77,42 +73,41 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 	}
 
 	if looksLikeFactualExact(lu) {
-		if !akSpecified {
+		if akSpecified {
+			if hit, snippet := akMatch(u, ak); hit {
+				return bulletsVN(
+					"Mình trả lời dựa trên thông tin bạn đã cung cấp cho nhân vật:",
+					snippet,
+				), nil
+			}
 			return bulletsVN(
-				"Mình **không có Allowed Knowledge cụ thể** cho bot này, nên không thể trả lời dạng **số liệu/nguồn chính xác**.",
-				"Bạn hãy cập nhật *Allowed Knowledge* (facts + nguồn), rồi mình sẽ trả lời đúng phạm vi.",
-			), nil
-		}
-
-		if hit, snippet := akMatch(u, ak); hit {
-			return bulletsVN(
-				"Mình trả lời theo *Allowed Knowledge* đã cấu hình:",
-				snippet,
+				"Mình chưa có đủ thông tin để trả lời chính xác câu hỏi này.",
+				"Bạn bổ sung thêm dữ liệu (facts/nguồn) hoặc cho mình thêm bối cảnh để mình trả lời cụ thể hơn nhé.",
 			), nil
 		}
 
 		return bulletsVN(
-			"Mình **không thấy dữ liệu liên quan** trong *Allowed Knowledge* để trả lời chính xác cho câu hỏi này.",
-			"Bạn hãy bổ sung facts/nguồn vào *Allowed Knowledge*, rồi mình sẽ trả lời theo đúng phong cách đã cấu hình.",
+			"Mình chưa có đủ thông tin để trả lời dạng số liệu/nguồn chính xác.",
+			"Bạn bổ sung thêm dữ liệu (facts/nguồn) hoặc bối cảnh để mình trả lời cụ thể hơn nhé.",
 		), nil
 	}
 
 	if akSpecified {
 		if hit, snippet := akMatch(u, ak); hit {
 			return bulletsVN(
-				"Mình trả lời theo *Allowed Knowledge* đã cấu hình:",
+				"Mình trả lời dựa trên thông tin bạn đã cung cấp cho nhân vật:",
 				snippet,
 			), nil
 		}
 		return bulletsVN(
-			"Mình chưa thấy thông tin liên quan trong *Allowed Knowledge* để trả lời chắc chắn.",
-			"Bạn có thể bổ sung thêm dữ liệu vào *Allowed Knowledge* để mình bám đúng phạm vi.",
+			"Mình chưa có đủ thông tin để trả lời chắc chắn cho câu hỏi này.",
+			"Bạn cho mình thêm 1–2 chi tiết (bối cảnh / mục tiêu / ràng buộc) để mình trả lời chính xác hơn nhé.",
 		), nil
 	}
 
 	return bulletsVN(
 		"Mình hiểu câu hỏi của bạn: \""+u+"\".",
-		"Mình có thể trả lời **hướng dẫn chung** theo persona, nhưng sẽ không bịa số liệu/nguồn.",
+		"Mình có thể trả lời hướng dẫn chung theo persona, và sẽ tránh bịa số liệu/nguồn.",
 		"Bạn muốn đầu ra dạng gì? (checklist / kế hoạch / hướng dẫn từng bước)",
 	), nil
 }
@@ -128,7 +123,7 @@ func parseIdentity(systemPrompt string) (name, job, bio string) {
 		job = strings.TrimSpace(m[1])
 	}
 
-	reBioBlock := regexp.MustCompile(`(?is)^\s*-\s*Bio:\s*(.*?)\n\nSTYLE\s*/\s*TONE`)
+	reBioBlock := regexp.MustCompile(`(?is)^\s*-\s*Bio:\s*(.*?)\n\n(?:STYLE\s*/\s*TONE|BEHAVIOR\s+RULES|RULES)`)
 	if m := reBioBlock.FindStringSubmatch(systemPrompt); len(m) == 2 {
 		bio = strings.TrimSpace(m[1])
 	} else {
@@ -142,7 +137,7 @@ func parseIdentity(systemPrompt string) (name, job, bio string) {
 }
 
 func parseStyle(systemPrompt string) string {
-	re := regexp.MustCompile(`(?is)STYLE\s*/\s*TONE\s*\(must follow\)\s*:\s*(.*?)\n\n`)
+	re := regexp.MustCompile(`(?is)STYLE\s*/\s*TONE(?:\s*\(.*?\))?\s*:\s*(.*?)\n\n`)
 	m := re.FindStringSubmatch(systemPrompt)
 	if len(m) == 2 {
 		return strings.TrimSpace(m[1])
@@ -151,26 +146,41 @@ func parseStyle(systemPrompt string) string {
 }
 
 func parseAllowedKnowledge(systemPrompt string) (knowledge string, specified bool) {
-	reNot := regexp.MustCompile(`(?is)ALLOWED KNOWLEDGE\s*:\s*Not specified\.`)
+	reNot := regexp.MustCompile(`(?is)ALLOWED\s+KNOWLEDGE\s*:\s*Not specified\.`)
 	if reNot.FindStringIndex(systemPrompt) != nil {
 		return "", false
 	}
 
-	re1 := regexp.MustCompile(`(?is)ALLOWED KNOWLEDGE\s*\(ONLY use these facts/assumptions\)\s*:\s*(.*)$`)
-	m := re1.FindStringSubmatch(systemPrompt)
-	if len(m) != 2 {
-		return "", false
-	}
-	block := strings.TrimSpace(m[1])
+	re := regexp.MustCompile(`(?is)(ALLOWED\s+KNOWLEDGE(?:\s*\(.*?\))?\s*:\s*)(.*)$`)
+	m := re.FindStringSubmatch(systemPrompt)
+	if len(m) == 3 {
+		block := strings.TrimSpace(m[2])
 
-	cutRe := regexp.MustCompile(`(?is)\n\nIf the user asks outside this knowledge.*$`)
-	block = cutRe.ReplaceAllString(block, "")
-	block = strings.TrimSpace(block)
+		cutters := []*regexp.Regexp{
+			regexp.MustCompile(`(?is)\n\nBEHAVIOR\s+RULES\s*:.*$`),
+			regexp.MustCompile(`(?is)\n\nRULES\s*\(.*?\)\s*:.*$`),
+			regexp.MustCompile(`(?is)\n\nIf\s+the\s+user\s+asks.*$`),
+		}
+		for _, cut := range cutters {
+			block = cut.ReplaceAllString(block, "")
+			block = strings.TrimSpace(block)
+		}
 
-	if block == "" {
-		return "", false
+		if block != "" {
+			return block, true
+		}
 	}
-	return block, true
+
+	re2 := regexp.MustCompile(`(?is)You\s+may\s+rely\s+on\s+the\s+following\s+knowledge\s*:\s*(.*)$`)
+	m2 := re2.FindStringSubmatch(systemPrompt)
+	if len(m2) == 2 {
+		block := strings.TrimSpace(m2[1])
+		if block != "" {
+			return block, true
+		}
+	}
+
+	return "", false
 }
 
 func akMatch(question string, ak string) (bool, string) {
@@ -297,7 +307,7 @@ func firstNonEmptyLines(s string, max int) []string {
 		}
 	}
 	if len(out) == 0 {
-		out = append(out, "(Allowed Knowledge is empty)")
+		out = append(out, "(empty)")
 	}
 	return out
 }

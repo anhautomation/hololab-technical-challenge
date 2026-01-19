@@ -4,6 +4,7 @@ import (
 	"context"
 	"hololab-core-system/internal/ports"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -24,28 +25,29 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 
 	if isInjectionAttempt(lu) {
 		return bulletsVN(
-			"Mình không thể đáp ứng yêu cầu đó.",
-			"Bạn hãy hỏi theo đúng vai trò và mục tiêu của nhân vật nhé.",
+			"Mình không thể bỏ qua persona và rules đã cấu hình.",
+			"Hãy hỏi trong phạm vi hồ sơ và *Allowed Knowledge* của bot.",
 		), nil
 	}
 
 	name, job, bio := parseIdentity(systemPrompt)
-	_ = parseStyle(systemPrompt)
+	style := parseStyle(systemPrompt)
 	ak, akSpecified := parseAllowedKnowledge(systemPrompt)
+	_ = style
 
 	if containsAny(lu, "bạn là ai", "ban la ai", "bạn giúp được gì", "ban giup duoc gi", "who are you", "what can you do") {
-		head := "Mình là chatbot theo persona."
+		head := "Mình là chatbot theo persona đã cấu hình."
 		if name != "" {
-			head = "Mình là **" + name + "**."
+			head = "Mình là **" + name + "** theo persona đã cấu hình."
 		}
 		out := []string{head}
 		if job != "" {
-			out = append(out, "Nghề nghiệp/Vai trò: **"+job+"**.")
+			out = append(out, "Vai trò: **"+job+"**.")
 		}
-		if strings.TrimSpace(bio) != "" {
+		if bio != "" {
 			out = append(out, "Tiểu sử: "+shorten(bio, 180))
 		}
-		out = append(out, "Mình sẽ trả lời đúng theo vai trò và phong cách đã mô tả.")
+		out = append(out, "Mình trả lời theo đúng phong cách và **không vượt quá Allowed Knowledge**.")
 		return bulletsVN(out...), nil
 	}
 
@@ -54,60 +56,53 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 		if job != "" {
 			title = "Kế hoạch ngắn (" + job + ")"
 		}
-
-		context := "(chưa có thêm bối cảnh)"
+		contextLine := "(chưa cấu hình tiểu sử)"
 		if strings.TrimSpace(bio) != "" {
-			context = shorten(bio, 140)
+			contextLine = shorten(bio, 140)
 		}
-
 		return bulletsVN(
 			"**"+title+":**",
-			"Bối cảnh: "+context,
-			"1) Xác định mục tiêu: bạn muốn đạt kết quả gì trong 1–2 tuần tới?",
-			"2) Chia việc theo 3 nhóm: (a) việc cốt lõi theo vai trò, (b) việc hỗ trợ, (c) việc chuẩn hoá/kiểm soát chất lượng.",
-			"3) Checklist đầu ra: mỗi ngày 1–3 đầu việc nhỏ có thể hoàn thành.",
-			"4) Tiêu chí chất lượng: “đúng – đủ – dễ kiểm tra”.",
-			"5) Review cuối tuần: cái gì hiệu quả / cái gì cần bỏ.",
-			"Bạn cho mình 2 thông tin: (a) mục tiêu cụ thể là gì? (b) ràng buộc thời gian/ngân sách?",
+			"Bối cảnh: "+contextLine,
+			"1) Mục tiêu 1–2 tuần: kết quả đo được là gì?",
+			"2) Chia việc: (a) cốt lõi theo vai trò, (b) hỗ trợ, (c) kiểm soát chất lượng.",
+			"3) Mỗi ngày 1–3 đầu việc nhỏ hoàn thành được.",
+			"4) Tiêu chí: đúng – đủ – dễ kiểm tra.",
+			"5) Review cuối tuần: giữ cái hiệu quả, bỏ cái thừa.",
+			"Bạn cho mình 2 thông tin: (a) mục tiêu cụ thể, (b) ràng buộc thời gian/ngân sách.",
 		), nil
 	}
 
 	if looksLikeFactualExact(lu) {
-		if akSpecified {
-			if hit, snippet := akMatch(u, ak); hit {
-				return bulletsVN(
-					"Mình trả lời dựa trên thông tin bạn đã cung cấp cho nhân vật:",
-					snippet,
-				), nil
-			}
+		if !akSpecified {
 			return bulletsVN(
-				"Mình chưa có đủ thông tin để trả lời chính xác câu hỏi này.",
-				"Bạn bổ sung thêm dữ liệu (facts/nguồn) hoặc cho mình thêm bối cảnh để mình trả lời cụ thể hơn nhé.",
+				"Mình **chưa có Allowed Knowledge cụ thể** cho bot này nên không thể trả lời dạng **số liệu/nguồn chính xác**.",
+				"Bạn cập nhật *Allowed Knowledge* (facts + nguồn) rồi mình trả lời đúng phạm vi.",
 			), nil
 		}
 
+		if hit, answer := akAnswer(u, ak, true); hit {
+			return answer, nil
+		}
+
 		return bulletsVN(
-			"Mình chưa có đủ thông tin để trả lời dạng số liệu/nguồn chính xác.",
-			"Bạn bổ sung thêm dữ liệu (facts/nguồn) hoặc bối cảnh để mình trả lời cụ thể hơn nhé.",
+			"Mình **không thấy dữ liệu liên quan** trong *Allowed Knowledge* để trả lời chính xác.",
+			"Bạn bổ sung facts/nguồn vào *Allowed Knowledge* rồi mình trả lời theo đúng phạm vi.",
 		), nil
 	}
 
 	if akSpecified {
-		if hit, snippet := akMatch(u, ak); hit {
-			return bulletsVN(
-				"Mình trả lời dựa trên thông tin bạn đã cung cấp cho nhân vật:",
-				snippet,
-			), nil
+		if hit, answer := akAnswer(u, ak, false); hit {
+			return answer, nil
 		}
 		return bulletsVN(
-			"Mình chưa có đủ thông tin để trả lời chắc chắn cho câu hỏi này.",
-			"Bạn cho mình thêm 1–2 chi tiết (bối cảnh / mục tiêu / ràng buộc) để mình trả lời chính xác hơn nhé.",
+			"Mình chưa thấy thông tin liên quan trong *Allowed Knowledge* để trả lời chắc chắn.",
+			"Bạn có thể bổ sung thêm dữ liệu vào *Allowed Knowledge* để mình bám đúng phạm vi.",
 		), nil
 	}
 
 	return bulletsVN(
 		"Mình hiểu câu hỏi của bạn: \""+u+"\".",
-		"Mình có thể trả lời hướng dẫn chung theo persona, và sẽ tránh bịa số liệu/nguồn.",
+		"Mình có thể trả lời **hướng dẫn chung**, nhưng sẽ không bịa số liệu/nguồn.",
 		"Bạn muốn đầu ra dạng gì? (checklist / kế hoạch / hướng dẫn từng bước)",
 	), nil
 }
@@ -123,7 +118,7 @@ func parseIdentity(systemPrompt string) (name, job, bio string) {
 		job = strings.TrimSpace(m[1])
 	}
 
-	reBioBlock := regexp.MustCompile(`(?is)^\s*-\s*Bio:\s*(.*?)\n\n(?:STYLE\s*/\s*TONE|BEHAVIOR\s+RULES|RULES)`)
+	reBioBlock := regexp.MustCompile(`(?is)^\s*-\s*Bio:\s*(.*?)\n\nSTYLE\s*/\s*TONE`)
 	if m := reBioBlock.FindStringSubmatch(systemPrompt); len(m) == 2 {
 		bio = strings.TrimSpace(m[1])
 	} else {
@@ -137,7 +132,7 @@ func parseIdentity(systemPrompt string) (name, job, bio string) {
 }
 
 func parseStyle(systemPrompt string) string {
-	re := regexp.MustCompile(`(?is)STYLE\s*/\s*TONE(?:\s*\(.*?\))?\s*:\s*(.*?)\n\n`)
+	re := regexp.MustCompile(`(?is)STYLE\s*/\s*TONE\s*\(must follow\)\s*:\s*(.*?)\n\n`)
 	m := re.FindStringSubmatch(systemPrompt)
 	if len(m) == 2 {
 		return strings.TrimSpace(m[1])
@@ -146,49 +141,132 @@ func parseStyle(systemPrompt string) string {
 }
 
 func parseAllowedKnowledge(systemPrompt string) (knowledge string, specified bool) {
-	reNot := regexp.MustCompile(`(?is)ALLOWED\s+KNOWLEDGE\s*:\s*Not specified\.`)
+	reNot := regexp.MustCompile(`(?is)ALLOWED KNOWLEDGE\s*:\s*Not specified\.`)
 	if reNot.FindStringIndex(systemPrompt) != nil {
 		return "", false
 	}
 
-	re := regexp.MustCompile(`(?is)(ALLOWED\s+KNOWLEDGE(?:\s*\(.*?\))?\s*:\s*)(.*)$`)
-	m := re.FindStringSubmatch(systemPrompt)
-	if len(m) == 3 {
-		block := strings.TrimSpace(m[2])
-
-		cutters := []*regexp.Regexp{
-			regexp.MustCompile(`(?is)\n\nBEHAVIOR\s+RULES\s*:.*$`),
-			regexp.MustCompile(`(?is)\n\nRULES\s*\(.*?\)\s*:.*$`),
-			regexp.MustCompile(`(?is)\n\nIf\s+the\s+user\s+asks.*$`),
-		}
-		for _, cut := range cutters {
-			block = cut.ReplaceAllString(block, "")
-			block = strings.TrimSpace(block)
-		}
-
-		if block != "" {
-			return block, true
-		}
+	re1 := regexp.MustCompile(`(?is)ALLOWED KNOWLEDGE\s*\(ONLY use these facts/assumptions\)\s*:\s*(.*)$`)
+	m := re1.FindStringSubmatch(systemPrompt)
+	if len(m) != 2 {
+		return "", false
 	}
+	block := strings.TrimSpace(m[1])
 
-	re2 := regexp.MustCompile(`(?is)You\s+may\s+rely\s+on\s+the\s+following\s+knowledge\s*:\s*(.*)$`)
-	m2 := re2.FindStringSubmatch(systemPrompt)
-	if len(m2) == 2 {
-		block := strings.TrimSpace(m2[1])
-		if block != "" {
-			return block, true
-		}
+	cutRe := regexp.MustCompile(`(?is)\n\nIf the user asks outside this knowledge.*$`)
+	block = cutRe.ReplaceAllString(block, "")
+	block = strings.TrimSpace(block)
+
+	if block == "" {
+		return "", false
 	}
-
-	return "", false
+	return block, true
 }
 
-func akMatch(question string, ak string) (bool, string) {
-	q := strings.ToLower(question)
-	akLower := strings.ToLower(ak)
+func akAnswer(question string, ak string, exactMode bool) (bool, string) {
+	lines := normalizeAKLines(ak)
+	if len(lines) == 0 {
+		return false, ""
+	}
 
+	q := strings.ToLower(question)
+	keywords := extractKeywords(q)
+	if len(keywords) == 0 {
+		keywords = []string{q}
+	}
+
+	type scored struct {
+		line  string
+		score int
+	}
+	scoredLines := make([]scored, 0, len(lines))
+
+	for _, ln := range lines {
+		lnLow := strings.ToLower(ln)
+		s := 0
+		for _, kw := range keywords {
+			if kw == "" {
+				continue
+			}
+			if strings.Contains(lnLow, kw) {
+				s += 3
+			} else if fuzzyHit(lnLow, kw) {
+				s += 1
+			}
+		}
+		if s > 0 {
+			scoredLines = append(scoredLines, scored{line: ln, score: s})
+		}
+	}
+
+	if len(scoredLines) == 0 {
+		return false, ""
+	}
+
+	sort.SliceStable(scoredLines, func(i, j int) bool {
+		return scoredLines[i].score > scoredLines[j].score
+	})
+
+	topics := make([]string, 0, 5)
+	seen := map[string]bool{}
+	for _, it := range scoredLines {
+		if len(topics) >= 5 {
+			break
+		}
+		t := strings.TrimSpace(it.line)
+		if t == "" {
+			continue
+		}
+		if !seen[t] {
+			seen[t] = true
+			topics = append(topics, t)
+		}
+	}
+	if len(topics) == 0 {
+		return false, ""
+	}
+
+	if exactMode {
+		return true, bulletsVN(
+			"Mình trả lời dựa trên *Allowed Knowledge* đã cấu hình:",
+			"Phần liên quan mình tìm thấy:",
+			"• "+strings.Join(topics, "\n• "),
+			"Nếu bạn cần **số liệu/nguồn chính xác** mà chưa có trong *Allowed Knowledge*, hãy bổ sung thêm dữ liệu.",
+		)
+	}
+
+	return true, bulletsVN(
+		"Mình bám theo *Allowed Knowledge* đã cấu hình và trả lời theo hướng thực thi:",
+		"Trọng tâm liên quan:",
+		"• "+strings.Join(topics, "\n• "),
+		"Gợi ý triển khai nhanh:",
+		"1) Chốt mục tiêu và ràng buộc (deadline / ngân sách / mức rủi ro chấp nhận được).",
+		"2) Lập checklist theo các mục trọng tâm ở trên, chọn 1–2 mục ưu tiên làm trước.",
+		"3) Xác định đầu ra có thể kiểm tra (bảng theo dõi / rule / quy trình / báo cáo).",
+		"Bạn cho mình 2 thông tin để cụ thể hoá: (a) bối cảnh hiện tại, (b) outcome bạn muốn đạt là gì?",
+	)
+}
+
+func normalizeAKLines(ak string) []string {
+	raw := strings.Split(ak, "\n")
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		t := strings.TrimSpace(r)
+		t = strings.TrimPrefix(t, "-")
+		t = strings.TrimPrefix(t, "•")
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func extractKeywords(q string) []string {
 	words := splitWords(q)
-	keywords := make([]string, 0, len(words))
+	out := make([]string, 0, len(words))
+	seen := map[string]bool{}
 	for _, w := range words {
 		if len(w) < 4 {
 			continue
@@ -196,23 +274,40 @@ func akMatch(question string, ak string) (bool, string) {
 		if isStopWord(w) {
 			continue
 		}
-		keywords = append(keywords, w)
-	}
-
-	for _, kw := range keywords {
-		if strings.Contains(akLower, kw) {
-			return true, "• " + strings.Join(firstNonEmptyLines(ak, 5), "\n• ")
+		if !seen[w] {
+			seen[w] = true
+			out = append(out, w)
 		}
 	}
+	return out
+}
 
-	if containsAny(q, "vat") && strings.Contains(akLower, "vat") {
-		return true, "• " + strings.Join(firstNonEmptyLines(ak, 5), "\n• ")
+func fuzzyHit(text string, kw string) bool {
+	if kw == "" {
+		return false
 	}
-	if containsAny(q, "deadline", "hạn", "han") && strings.Contains(akLower, "deadline") {
-		return true, "• " + strings.Join(firstNonEmptyLines(ak, 5), "\n• ")
+	if strings.HasPrefix(kw, "risk") && strings.Contains(text, "risk") {
+		return true
 	}
-
-	return false, ""
+	if strings.HasPrefix(kw, "cost") && strings.Contains(text, "cost") {
+		return true
+	}
+	if strings.HasPrefix(kw, "budget") && strings.Contains(text, "budget") {
+		return true
+	}
+	if strings.HasPrefix(kw, "audit") && strings.Contains(text, "audit") {
+		return true
+	}
+	if strings.HasPrefix(kw, "vendor") && strings.Contains(text, "vendor") {
+		return true
+	}
+	if strings.HasPrefix(kw, "contract") && strings.Contains(text, "contract") {
+		return true
+	}
+	if strings.HasPrefix(kw, "compliance") && strings.Contains(text, "compliance") {
+		return true
+	}
+	return false
 }
 
 func isInjectionAttempt(lu string) bool {
@@ -292,22 +387,4 @@ func isStopWord(w string) bool {
 	default:
 		return false
 	}
-}
-
-func firstNonEmptyLines(s string, max int) []string {
-	raw := strings.Split(s, "\n")
-	out := make([]string, 0, len(raw))
-	for _, r := range raw {
-		t := strings.TrimSpace(strings.TrimPrefix(r, "-"))
-		if t != "" {
-			out = append(out, t)
-		}
-		if len(out) >= max {
-			break
-		}
-	}
-	if len(out) == 0 {
-		out = append(out, "(empty)")
-	}
-	return out
 }

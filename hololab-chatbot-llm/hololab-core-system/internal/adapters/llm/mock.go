@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 type MockProvider struct{}
@@ -16,67 +17,73 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 
 	u := strings.TrimSpace(userText)
 	if u == "" {
-		return bulletsVN(
-			"Mình chưa nhận được nội dung câu hỏi.",
-			"Bạn nhập rõ yêu cầu giúp mình nhé.",
+		return formatList(
+			"Tôi chưa nhận được nội dung câu hỏi.",
+			"Bạn vui lòng nhập rõ yêu cầu để tôi hỗ trợ.",
 		), nil
 	}
 	lu := strings.ToLower(u)
 
 	if isInjectionAttempt(lu) {
-		return bulletsVN(
-			"Mình không thể bỏ qua persona và rules đã cấu hình.",
-			"Hãy hỏi trong phạm vi hồ sơ và *Allowed Knowledge* của bot.",
+		return formatList(
+			"Tôi không thể thực hiện yêu cầu này.",
+			"Bạn vui lòng đặt câu hỏi trong phạm vi thông tin đã được cấu hình.",
 		), nil
 	}
 
 	name, job, bio := parseIdentity(systemPrompt)
-	style := parseStyle(systemPrompt)
+	_ = parseStyle(systemPrompt)
 	ak, akSpecified := parseAllowedKnowledge(systemPrompt)
-	_ = style
 
 	if containsAny(lu, "bạn là ai", "ban la ai", "bạn giúp được gì", "ban giup duoc gi", "who are you", "what can you do") {
-		head := "Mình là chatbot theo persona đã cấu hình."
+		intro := "Tôi là trợ lý ảo."
 		if name != "" {
-			head = "Mình là **" + name + "** theo persona đã cấu hình."
+			intro = "Tôi là " + name + "."
 		}
-		out := []string{head}
+
+		lines := []string{intro}
+
 		if job != "" {
-			out = append(out, "Vai trò: **"+job+"**.")
+			lines = append(lines, "Vai trò hiện tại: "+job+".")
 		}
 		if bio != "" {
-			out = append(out, "Tiểu sử: "+shorten(bio, 180))
+			lines = append(lines, "Thông tin nền: "+shorten(bio, 180))
 		}
-		out = append(out, "Mình trả lời theo đúng phong cách và **không vượt quá Allowed Knowledge**.")
-		return bulletsVN(out...), nil
+		lines = append(lines, "Tôi trả lời dựa trên thông tin đã được cấu hình cho trợ lý này.")
+		return formatList(lines...), nil
 	}
 
-	if containsAny(lu, "short plan", "kế hoạch", "ke hoach", "plan related to your occupation", "related to your occupation") {
-		title := "Kế hoạch ngắn theo vai trò hiện tại"
+	if containsAny(lu, "short plan", "kế hoạch", "ke hoach", "plan related to your occupation", "related to your occupation", "roadmap", "plan") {
+		title := "Dưới đây là một kế hoạch ngắn gọn để bạn bắt đầu."
 		if job != "" {
-			title = "Kế hoạch ngắn (" + job + ")"
+			title = "Dưới đây là một kế hoạch ngắn gọn phù hợp với vai trò " + job + "."
 		}
-		contextLine := "(chưa cấu hình tiểu sử)"
+
+		contextLine := ""
 		if strings.TrimSpace(bio) != "" {
 			contextLine = shorten(bio, 140)
 		}
-		return bulletsVN(
-			"**"+title+":**",
-			"Bối cảnh: "+contextLine,
-			"1) Mục tiêu 1–2 tuần: kết quả đo được là gì?",
-			"2) Chia việc: (a) cốt lõi theo vai trò, (b) hỗ trợ, (c) kiểm soát chất lượng.",
-			"3) Mỗi ngày 1–3 đầu việc nhỏ hoàn thành được.",
-			"4) Tiêu chí: đúng – đủ – dễ kiểm tra.",
-			"5) Review cuối tuần: giữ cái hiệu quả, bỏ cái thừa.",
-			"Bạn cho mình 2 thông tin: (a) mục tiêu cụ thể, (b) ràng buộc thời gian/ngân sách.",
-		), nil
+
+		lines := []string{title}
+		if contextLine != "" {
+			lines = append(lines, "Bối cảnh hiện có: "+contextLine)
+		}
+
+		lines = append(lines,
+			"Trước hết, chốt mục tiêu trong 1–2 tuần tới (kết quả đo được).",
+			"Sau đó chọn 2–3 việc tác động trực tiếp đến mục tiêu, tránh dàn trải.",
+			"Chia nhỏ theo ngày để đảm bảo mỗi ngày có tiến độ rõ ràng.",
+			"Cuối cùng, đặt tiêu chí hoàn thành để dễ kiểm tra và điều chỉnh.",
+			"Nếu bạn nói rõ mục tiêu và ràng buộc (thời gian/ngân sách), tôi sẽ đề xuất chi tiết hơn.",
+		)
+		return formatList(lines...), nil
 	}
 
 	if looksLikeFactualExact(lu) {
 		if !akSpecified {
-			return bulletsVN(
-				"Mình **chưa có Allowed Knowledge cụ thể** cho bot này nên không thể trả lời dạng **số liệu/nguồn chính xác**.",
-				"Bạn cập nhật *Allowed Knowledge* (facts + nguồn) rồi mình trả lời đúng phạm vi.",
+			return formatList(
+				"Tôi không tìm thấy thông tin phù hợp trong phần dữ liệu đã được cấu hình để trả lời chính xác câu này.",
+				"Bạn thêm 2–3 gạch đầu dòng về số liệu hoặc nguồn liên quan (facts/sources), rồi tôi trả lời lại ngay.",
 			), nil
 		}
 
@@ -84,9 +91,9 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 			return answer, nil
 		}
 
-		return bulletsVN(
-			"Mình **không thấy dữ liệu liên quan** trong *Allowed Knowledge* để trả lời chính xác.",
-			"Bạn bổ sung facts/nguồn vào *Allowed Knowledge* rồi mình trả lời theo đúng phạm vi.",
+		return formatList(
+			"Tôi không tìm thấy dữ liệu phù hợp trong phần dữ liệu đã được cấu hình để trả lời chính xác câu này.",
+			"Bạn thêm 2–3 gạch đầu dòng về số liệu hoặc nguồn liên quan (facts/sources), rồi tôi trả lời lại ngay.",
 		), nil
 	}
 
@@ -94,16 +101,16 @@ func (p MockProvider) Chat(ctx context.Context, systemPrompt string, history []p
 		if hit, answer := akAnswer(u, ak, false); hit {
 			return answer, nil
 		}
-		return bulletsVN(
-			"Mình chưa thấy thông tin liên quan trong *Allowed Knowledge* để trả lời chắc chắn.",
-			"Bạn có thể bổ sung thêm dữ liệu vào *Allowed Knowledge* để mình bám đúng phạm vi.",
+		return formatList(
+			"Tôi chưa thấy thông tin liên quan trong phần dữ liệu đã được cấu hình để trả lời chắc chắn.",
+			"Bạn bổ sung thêm vài gạch đầu dòng về dữ kiện liên quan (facts/sources), tôi sẽ trả lời sát hơn.",
 		), nil
 	}
 
-	return bulletsVN(
-		"Mình hiểu câu hỏi của bạn: \""+u+"\".",
-		"Mình có thể trả lời **hướng dẫn chung**, nhưng sẽ không bịa số liệu/nguồn.",
-		"Bạn muốn đầu ra dạng gì? (checklist / kế hoạch / hướng dẫn từng bước)",
+	return formatList(
+		"Tôi hiểu câu hỏi của bạn.",
+		"Hiện tại tôi có thể trả lời theo hướng dẫn chung, nhưng sẽ không tự suy diễn số liệu hoặc thông tin cụ thể.",
+		"Bạn muốn tôi đưa ra checklist, kế hoạch, hay hướng dẫn từng bước?",
 	), nil
 }
 
@@ -214,6 +221,7 @@ func akAnswer(question string, ak string, exactMode bool) (bool, string) {
 			break
 		}
 		t := strings.TrimSpace(it.line)
+		t = cleanText(t)
 		if t == "" {
 			continue
 		}
@@ -227,24 +235,31 @@ func akAnswer(question string, ak string, exactMode bool) (bool, string) {
 	}
 
 	if exactMode {
-		return true, bulletsVN(
-			"Mình trả lời dựa trên *Allowed Knowledge* đã cấu hình:",
-			"Phần liên quan mình tìm thấy:",
-			"• "+strings.Join(topics, "\n• "),
-			"Nếu bạn cần **số liệu/nguồn chính xác** mà chưa có trong *Allowed Knowledge*, hãy bổ sung thêm dữ liệu.",
-		)
+		lines := []string{
+			"Tôi tìm thấy các thông tin liên quan trong phần dữ liệu đã được cấu hình:",
+			strings.Join(prefixDash(topics), "\n"),
+			"Nếu bạn cần số liệu hoặc thông tin khác chưa có ở đây, hãy bổ sung thêm facts/sources để tôi trả lời chính xác hơn.",
+		}
+		return true, formatList(lines...)
 	}
 
-	return true, bulletsVN(
-		"Mình bám theo *Allowed Knowledge* đã cấu hình và trả lời theo hướng thực thi:",
-		"Trọng tâm liên quan:",
-		"• "+strings.Join(topics, "\n• "),
-		"Gợi ý triển khai nhanh:",
-		"1) Chốt mục tiêu và ràng buộc (deadline / ngân sách / mức rủi ro chấp nhận được).",
-		"2) Lập checklist theo các mục trọng tâm ở trên, chọn 1–2 mục ưu tiên làm trước.",
-		"3) Xác định đầu ra có thể kiểm tra (bảng theo dõi / rule / quy trình / báo cáo).",
-		"Bạn cho mình 2 thông tin để cụ thể hoá: (a) bối cảnh hiện tại, (b) outcome bạn muốn đạt là gì?",
+	return true, formatList(
+		"Dựa trên thông tin đã được cấu hình, đây là những điểm trọng tâm:",
+		strings.Join(prefixDash(topics), "\n"),
+		"Nếu bạn nói rõ bối cảnh và mục tiêu, tôi sẽ đề xuất hướng thực thi cụ thể hơn.",
 	)
+}
+
+func prefixDash(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, s := range lines {
+		t := strings.TrimSpace(s)
+		if t == "" {
+			continue
+		}
+		out = append(out, "- "+t)
+	}
+	return out
 }
 
 func normalizeAKLines(ak string) []string {
@@ -265,15 +280,28 @@ func normalizeAKLines(ak string) []string {
 
 func extractKeywords(q string) []string {
 	words := splitWords(q)
+
+	allowShort := map[string]bool{
+		"mvp": true, "pmf": true, "gtm": true, "kpi": true, "okr": true,
+		"ux": true, "ui": true, "api": true, "saas": true,
+		"gdp": true, "vat": true,
+	}
+
 	out := make([]string, 0, len(words))
 	seen := map[string]bool{}
+
 	for _, w := range words {
-		if len(w) < 4 {
+		if w == "" {
 			continue
 		}
 		if isStopWord(w) {
 			continue
 		}
+
+		if len(w) < 4 && !allowShort[w] {
+			continue
+		}
+
 		if !seen[w] {
 			seen[w] = true
 			out = append(out, w)
@@ -341,18 +369,36 @@ func containsAny(s string, subs ...string) bool {
 	return false
 }
 
-func bulletsVN(lines ...string) string {
+func formatList(lines ...string) string {
 	var b strings.Builder
 	for _, s := range lines {
-		s = strings.TrimSpace(s)
+		s = cleanText(s)
 		if s == "" {
 			continue
 		}
-		b.WriteString("- ")
-		b.WriteString(s)
+		if isNumberedList(s) {
+			b.WriteString(s)
+		} else {
+			b.WriteString(s)
+		}
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func cleanText(s string) string {
+	s = strings.ReplaceAll(s, "*", "")
+	s = strings.ReplaceAll(s, "#", "")
+	s = strings.ReplaceAll(s, "_", "")
+	s = strings.TrimSpace(s)
+	return s
+}
+
+func isNumberedList(s string) bool {
+	if len(s) > 2 && unicode.IsDigit(rune(s[0])) && (s[1] == '.' || s[1] == ')') {
+		return true
+	}
+	return false
 }
 
 func shorten(s string, max int) string {
@@ -368,8 +414,8 @@ func shorten(s string, max int) string {
 
 func splitWords(s string) []string {
 	var b strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
 		} else {
 			b.WriteRune(' ')

@@ -37,7 +37,7 @@
 
         <a
           class="icon-link"
-          href="https://github.com/anhautomation/hololab-chatbot-llm"
+          href="https://github.com/anhautomation/hololab-technical-challenge/tree/main/hololab-chatbot-llm"
           target="_blank"
           rel="noopener"
           aria-label="GitHub"
